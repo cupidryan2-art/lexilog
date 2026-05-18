@@ -245,25 +245,16 @@ export function useVocabStore(userId: string) {
 
   const toggleStar = useCallback(
     (id: string) => {
+      // Read current value before dispatch so we send the correct new value to DB
+      const entry = entries.find((e) => e.id === id);
+      if (!entry) return;
       dispatch({ type: 'TOGGLE_STAR', id });
-      // Read new starred value from state after dispatch — find entry and flip
-      // We fire the DB update after state is updated via a separate effect approach;
-      // for simplicity, compute the new value inline:
       supabase
         .from('vocab_entries')
-        .select('starred')
-        .eq('id', id)
-        .single()
-        .then(({ data }) => {
-          if (data) {
-            supabase
-              .from('vocab_entries')
-              .update({ starred: !data.starred })
-              .eq('id', id);
-          }
-        });
+        .update({ starred: !entry.starred })
+        .eq('id', id);
     },
-    []
+    [entries]
   );
 
   const selectForReview = useCallback(
