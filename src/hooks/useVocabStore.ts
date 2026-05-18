@@ -1,5 +1,5 @@
 import { useReducer, useEffect, useCallback } from 'react';
-import type { VocabEntry, Category } from '../types';
+import type { VocabEntry } from '../types';
 
 const STORAGE_KEY = 'lexilog_entries';
 const ROUND_KEY = 'lexilog_current_round';
