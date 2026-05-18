@@ -78,6 +78,21 @@
   100% { transform: translateX(200%); }
 }
 
+/* Masonry-style card grid */
+.vocab-grid {
+  columns: 2;
+  column-gap: 16px;
+}
+.vocab-card {
+  break-inside: avoid;
+  margin-bottom: 16px;
+  display: inline-block;
+  width: 100%;
+}
+@media (max-width: 640px) {
+  .vocab-grid { columns: 1; }
+}
+
 /* Vocabulary highlight in review chat */
 .review-message strong {
   font-weight: 800;

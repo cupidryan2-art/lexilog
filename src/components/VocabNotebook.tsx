@@ -161,16 +161,17 @@ export function VocabNotebook({ entries, onAdd, onEdit, onDelete, onToggleStar }
           </p>
         </div>
       ) : (
-        <div className="grid gap-[14px] sm:grid-cols-1 lg:grid-cols-2">
+        <div className="vocab-grid">
           {filtered.map((entry) => (
-            <EntryCard
-              key={entry.id}
-              entry={entry}
-              isNew={entry.id === newEntryId}
-              onEdit={onEdit}
-              onDelete={onDelete}
-              onToggleStar={onToggleStar}
-            />
+            <div key={entry.id} className="vocab-card">
+              <EntryCard
+                entry={entry}
+                isNew={entry.id === newEntryId}
+                onEdit={onEdit}
+                onDelete={onDelete}
+                onToggleStar={onToggleStar}
+              />
+            </div>
           ))}
         </div>
       )}
