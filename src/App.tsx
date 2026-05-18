@@ -1,38 +1,30 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import type { Session } from '@supabase/supabase-js';
+import { supabase } from './lib/supabase';
 import { useVocabStore } from './hooks/useVocabStore';
 import { VocabNotebook } from './components/VocabNotebook';
 import { AddEntryModal } from './components/AddEntryModal';
 import { ReviewSession } from './components/ReviewSession';
 import { KeySetupOverlay } from './components/KeySetupOverlay';
+import { AuthScreen } from './components/AuthScreen';
 import type { VocabEntry } from './types';
 import { getApiKey, saveApiKey } from './lib/apiKey';
-import { BookOpen, MessageSquare, KeyRound } from 'lucide-react';
+import { BookOpen, MessageSquare, KeyRound, LogOut } from 'lucide-react';
 
 type Tab = 'notebook' | 'review';
 
-function loadKey(): string {
-  return getApiKey();
-}
-
-export default function App() {
-  const store = useVocabStore();
+// --- Authenticated app shell ---
+function AppShell({ session }: { session: Session }) {
+  const store = useVocabStore(session.user.id);
   const [tab, setTab] = useState<Tab>('notebook');
   const [editingEntry, setEditingEntry] = useState<VocabEntry | null>(null);
-  const [apiKey, setApiKey] = useState<string>(loadKey);
+  const [apiKey, setApiKey] = useState<string>(() => getApiKey());
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [pendingKey, setPendingKey] = useState('');
 
   function handleEditSave(entry: VocabEntry) {
     store.updateEntry(entry);
     setEditingEntry(null);
-  }
-
-  function handleEdit(entry: VocabEntry) {
-    setEditingEntry(entry);
-  }
-
-  function handleKeyDone(key: string) {
-    setApiKey(key);
   }
 
   function handleKeySave() {
@@ -46,9 +38,8 @@ export default function App() {
 
   const starredCount = store.entries.filter((e) => e.starred).length;
 
-  // First-launch gate
   if (!apiKey) {
-    return <KeySetupOverlay onDone={handleKeyDone} />;
+    return <KeySetupOverlay onDone={setApiKey} />;
   }
 
   return (
@@ -61,25 +52,38 @@ export default function App() {
               <span className="text-white text-xs font-bold font-['Playfair_Display']">L</span>
             </div>
             <div>
-              <h1 className="font-['Playfair_Display'] text-lg text-[#1C1917] leading-none" style={{ fontWeight: 900 }}>
+              <h1
+                className="font-['Playfair_Display'] text-lg text-[#1C1917] leading-none"
+                style={{ fontWeight: 900 }}
+              >
                 LexiLog
               </h1>
-              <p className="text-[10px] text-stone-400 tracking-widest uppercase leading-none mt-0.5" style={{ opacity: 0.45 }}>
+              <p
+                className="text-[10px] text-stone-400 tracking-widest uppercase leading-none mt-0.5"
+                style={{ opacity: 0.45 }}
+              >
                 Vocabulary Companion
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <span className="hidden sm:inline text-xs text-stone-400">
+          <div className="flex items-center gap-1">
+            <span className="hidden sm:inline text-xs text-stone-400 mr-2">
               {store.entries.length} entries · {starredCount} starred
             </span>
             <button
               onClick={() => { setPendingKey(apiKey); setShowKeyInput((v) => !v); }}
               className="p-2 text-stone-400 hover:text-stone-700 transition-colors rounded hover:bg-stone-100"
-              title="Update API key"
+              title="Update DeepSeek API key"
             >
               <KeyRound size={15} />
+            </button>
+            <button
+              onClick={() => supabase.auth.signOut()}
+              className="p-2 text-stone-400 hover:text-stone-700 transition-colors rounded hover:bg-stone-100"
+              title={`Sign out (${session.user.email})`}
+            >
+              <LogOut size={15} />
             </button>
           </div>
         </div>
@@ -93,7 +97,10 @@ export default function App() {
                 type="password"
                 value={pendingKey}
                 onChange={(e) => setPendingKey(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleKeySave(); if (e.key === 'Escape') setShowKeyInput(false); }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleKeySave();
+                  if (e.key === 'Escape') setShowKeyInput(false);
+                }}
                 placeholder="sk-..."
                 autoFocus
                 className="flex-1 px-2 py-1 text-xs font-mono border border-stone-300 rounded-sm bg-white focus:outline-none focus:border-amber-500 min-w-0"
@@ -142,17 +149,19 @@ export default function App() {
 
       {/* Main content */}
       <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
-        {tab === 'notebook' && (
+        {store.loading ? (
+          <div className="flex items-center justify-center py-24">
+            <div className="w-6 h-6 border-2 border-stone-300 border-t-[#D4883A] rounded-full animate-spin" />
+          </div>
+        ) : tab === 'notebook' ? (
           <VocabNotebook
             entries={store.entries}
             onAdd={store.addEntry}
-            onEdit={handleEdit}
+            onEdit={setEditingEntry}
             onDelete={store.deleteEntry}
             onToggleStar={store.toggleStar}
           />
-        )}
-
-        {tab === 'review' && (
+        ) : (
           <ReviewSession
             entries={store.entries}
             selectForReview={store.selectForReview}
@@ -162,7 +171,6 @@ export default function App() {
         )}
       </main>
 
-      {/* Edit modal (only for existing entries) */}
       {editingEntry && (
         <AddEntryModal
           entry={editingEntry}
@@ -172,4 +180,37 @@ export default function App() {
       )}
     </div>
   );
+}
+
+// --- Root: auth gate ---
+export default function App() {
+  const [session, setSession] = useState<Session | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setAuthLoading(false);
+    });
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-[#F8F5EE] flex items-center justify-center">
+        <div className="w-6 h-6 border-2 border-stone-300 border-t-[#D4883A] rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!session) {
+    return <AuthScreen />;
+  }
+
+  return <AppShell session={session} />;
 }

@@ -1,13 +1,12 @@
-import { useReducer, useEffect, useCallback } from 'react';
+import { useReducer, useEffect, useCallback, useState } from 'react';
 import type { VocabEntry } from '../types';
+import { supabase } from '../lib/supabase';
 
-const STORAGE_KEY = 'lexilog_entries';
 const ROUND_KEY = 'lexilog_current_round';
 
-// --- Sample data seeded on first load ---
-const SAMPLE_ENTRIES: VocabEntry[] = [
+// --- Sample data seeded for new users ---
+const SAMPLE_ENTRIES_TEMPLATE: Omit<VocabEntry, 'id'>[] = [
   {
-    id: 'sample-1',
     term: 'silver lining',
     category: 'collocation',
     english_definition: 'A positive aspect of an otherwise negative situation.',
@@ -24,7 +23,6 @@ const SAMPLE_ENTRIES: VocabEntry[] = [
     last_reviewed: '2026-05-17T09:00:00Z',
   },
   {
-    id: 'sample-2',
     term: 'ephemeral',
     category: 'word',
     english_definition: 'Lasting for a very short time; transitory.',
@@ -41,7 +39,6 @@ const SAMPLE_ENTRIES: VocabEntry[] = [
     last_reviewed: '2026-05-17T09:00:00Z',
   },
   {
-    id: 'sample-3',
     term: 'It goes without saying that...',
     category: 'sentence_pattern',
     english_definition: 'Used to introduce something that is obvious or universally understood.',
@@ -57,7 +54,6 @@ const SAMPLE_ENTRIES: VocabEntry[] = [
     review_count: 0,
   },
   {
-    id: 'sample-4',
     term: 'get the ball rolling',
     category: 'collocation',
     english_definition: 'To start an activity or process; to initiate something.',
@@ -74,14 +70,65 @@ const SAMPLE_ENTRIES: VocabEntry[] = [
   },
 ];
 
+// --- DB row → VocabEntry ---
+type DbRow = {
+  id: string;
+  term: string;
+  category: string;
+  english_definition: string | null;
+  chinese_translation: string | null;
+  example_sentences: string[] | null;
+  pronunciation_ipa: string | null;
+  source: string | null;
+  starred: boolean;
+  review_count: number;
+  last_reviewed: string | null;
+  created_at: string;
+};
+
+function rowToEntry(row: DbRow): VocabEntry {
+  return {
+    id: row.id,
+    term: row.term,
+    category: row.category as VocabEntry['category'],
+    english_definition: row.english_definition ?? '',
+    chinese_translation: row.chinese_translation ?? '',
+    example_sentences: row.example_sentences ?? [],
+    pronunciation_ipa: row.pronunciation_ipa ?? '',
+    source: row.source ?? undefined,
+    date_added: row.created_at,
+    starred: row.starred,
+    review_count: row.review_count,
+    last_reviewed: row.last_reviewed ?? undefined,
+  };
+}
+
+function entryToRow(entry: VocabEntry, userId: string) {
+  return {
+    id: entry.id,
+    user_id: userId,
+    term: entry.term,
+    category: entry.category,
+    english_definition: entry.english_definition,
+    chinese_translation: entry.chinese_translation,
+    example_sentences: entry.example_sentences,
+    pronunciation_ipa: entry.pronunciation_ipa,
+    source: entry.source ?? null,
+    starred: entry.starred,
+    review_count: entry.review_count,
+    last_reviewed: entry.last_reviewed ?? null,
+    created_at: entry.date_added,
+  };
+}
+
 // --- Reducer ---
 type Action =
+  | { type: 'LOAD'; entries: VocabEntry[] }
   | { type: 'ADD_ENTRY'; entry: VocabEntry }
   | { type: 'UPDATE_ENTRY'; entry: VocabEntry }
   | { type: 'DELETE_ENTRY'; id: string }
   | { type: 'TOGGLE_STAR'; id: string }
-  | { type: 'MARK_REVIEWED'; ids: string[]; round: number }
-  | { type: 'LOAD'; entries: VocabEntry[] };
+  | { type: 'MARK_REVIEWED'; ids: string[]; round: number };
 
 function reducer(state: VocabEntry[], action: Action): VocabEntry[] {
   switch (action.type) {
@@ -106,24 +153,6 @@ function reducer(state: VocabEntry[], action: Action): VocabEntry[] {
   }
 }
 
-function loadFromStorage(): VocabEntry[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return SAMPLE_ENTRIES;
-    return JSON.parse(raw) as VocabEntry[];
-  } catch {
-    return SAMPLE_ENTRIES;
-  }
-}
-
-function saveToStorage(entries: VocabEntry[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
-  } catch {
-    // storage quota exceeded — silently fail
-  }
-}
-
 function getCurrentRound(): number {
   try {
     return parseInt(localStorage.getItem(ROUND_KEY) ?? '0', 10);
@@ -138,13 +167,45 @@ function saveRound(round: number): void {
   } catch {}
 }
 
-export function useVocabStore() {
-  const [entries, dispatch] = useReducer(reducer, [], loadFromStorage);
-  const currentRound = getCurrentRound();
+export function useVocabStore(userId: string) {
+  const [entries, dispatch] = useReducer(reducer, []);
+  const [loading, setLoading] = useState(true);
 
+  // Initial fetch from Supabase
   useEffect(() => {
-    saveToStorage(entries);
-  }, [entries]);
+    setLoading(true);
+    supabase
+      .from('vocab_entries')
+      .select('*')
+      .order('starred', { ascending: false })
+      .order('created_at', { ascending: false })
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('Failed to load entries:', error.message);
+          setLoading(false);
+          return;
+        }
+        const rows = (data ?? []) as DbRow[];
+        if (rows.length > 0) {
+          dispatch({ type: 'LOAD', entries: rows.map(rowToEntry) });
+          setLoading(false);
+        } else {
+          // Seed sample data for new user
+          const samples: VocabEntry[] = SAMPLE_ENTRIES_TEMPLATE.map((t) => ({
+            ...t,
+            id: crypto.randomUUID(),
+          }));
+          const seedRows = samples.map((s) => entryToRow(s, userId));
+          supabase
+            .from('vocab_entries')
+            .insert(seedRows)
+            .then(() => {
+              dispatch({ type: 'LOAD', entries: samples });
+              setLoading(false);
+            });
+        }
+      });
+  }, [userId]);
 
   const addEntry = useCallback(
     (data: Omit<VocabEntry, 'id' | 'date_added' | 'starred' | 'review_count'>): string => {
@@ -157,37 +218,60 @@ export function useVocabStore() {
         review_count: 0,
       };
       dispatch({ type: 'ADD_ENTRY', entry });
+      supabase.from('vocab_entries').insert(entryToRow(entry, userId));
       return id;
+    },
+    [userId]
+  );
+
+  const updateEntry = useCallback(
+    (entry: VocabEntry) => {
+      dispatch({ type: 'UPDATE_ENTRY', entry });
+      supabase
+        .from('vocab_entries')
+        .update(entryToRow(entry, userId))
+        .eq('id', entry.id);
+    },
+    [userId]
+  );
+
+  const deleteEntry = useCallback(
+    (id: string) => {
+      dispatch({ type: 'DELETE_ENTRY', id });
+      supabase.from('vocab_entries').delete().eq('id', id);
     },
     []
   );
 
-  const updateEntry = useCallback((entry: VocabEntry) => {
-    dispatch({ type: 'UPDATE_ENTRY', entry });
-  }, []);
+  const toggleStar = useCallback(
+    (id: string) => {
+      dispatch({ type: 'TOGGLE_STAR', id });
+      // Read new starred value from state after dispatch — find entry and flip
+      // We fire the DB update after state is updated via a separate effect approach;
+      // for simplicity, compute the new value inline:
+      supabase
+        .from('vocab_entries')
+        .select('starred')
+        .eq('id', id)
+        .single()
+        .then(({ data }) => {
+          if (data) {
+            supabase
+              .from('vocab_entries')
+              .update({ starred: !data.starred })
+              .eq('id', id);
+          }
+        });
+    },
+    []
+  );
 
-  const deleteEntry = useCallback((id: string) => {
-    dispatch({ type: 'DELETE_ENTRY', id });
-  }, []);
-
-  const toggleStar = useCallback((id: string) => {
-    dispatch({ type: 'TOGGLE_STAR', id });
-  }, []);
-
-  /**
-   * Selects up to `count` entries for a review session.
-   * Starred entries are always eligible.
-   * Non-starred entries are excluded if review_count >= currentRound + 1.
-   * If eligible pool < count, bump the round and refresh eligibility.
-   */
   const selectForReview = useCallback(
     (count: number = 10): { selected: VocabEntry[]; round: number } => {
       let round = getCurrentRound();
-
       const isEligible = (e: VocabEntry) => e.starred || e.review_count <= round;
       let eligible = entries.filter(isEligible);
 
-      // If pool is too small (excluding starred), start new round
       const nonStarredEligible = eligible.filter((e) => !e.starred);
       if (nonStarredEligible.length === 0 && entries.filter((e) => !e.starred).length > 0) {
         round += 1;
@@ -195,26 +279,34 @@ export function useVocabStore() {
         eligible = entries.filter((e) => e.starred || e.review_count <= round);
       }
 
-      // Shuffle and pick
       const shuffled = [...eligible].sort(() => Math.random() - 0.5);
       return { selected: shuffled.slice(0, count), round };
     },
     [entries]
   );
 
-  const markReviewed = useCallback((ids: string[], round: number) => {
-    dispatch({ type: 'MARK_REVIEWED', ids, round });
-  }, []);
+  const markReviewed = useCallback(
+    (ids: string[], round: number) => {
+      const now = new Date().toISOString();
+      dispatch({ type: 'MARK_REVIEWED', ids, round });
+      supabase
+        .from('vocab_entries')
+        .update({ review_count: round + 1, last_reviewed: now })
+        .in('id', ids);
+    },
+    []
+  );
 
   return {
     entries,
+    loading,
     addEntry,
     updateEntry,
     deleteEntry,
     toggleStar,
     selectForReview,
     markReviewed,
-    currentRound,
+    currentRound: getCurrentRound(),
   };
 }
 
