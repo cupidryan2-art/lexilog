@@ -31,7 +31,11 @@ export function AuthScreen() {
     e.preventDefault();
     reset();
     setLoading(true);
-    const { error } = await supabase.auth.signUp({ email, password });
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: 'https://cupidryan2-art.github.io/lexilog/' },
+    });
     setLoading(false);
     if (error) setError(error.message);
     else setSuccess('Check your email to confirm your account, then sign in.');
