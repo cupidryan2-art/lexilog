@@ -54,6 +54,9 @@
     "vaul": "^1.1.2",
     "zod": "^4.4.3"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": ["@parcel/watcher", "@swc/core", "lmdb", "msgpackr-extract", "@resvg/resvg-js"]
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@parcel/config-default": "^2.16.4",
