@@ -4,72 +4,6 @@ import { supabase } from '../lib/supabase';
 
 const ROUND_KEY = 'lexilog_current_round';
 
-// --- Sample data seeded for new users ---
-const SAMPLE_ENTRIES_TEMPLATE: Omit<VocabEntry, 'id'>[] = [
-  {
-    term: 'silver lining',
-    category: 'collocation',
-    english_definition: 'A positive aspect of an otherwise negative situation.',
-    chinese_translation: '黑暗中的一线光明；塞翁失马',
-    example_sentences: [
-      'Every cloud has a silver lining — losing that job led me to a better one.',
-      'She tried to find the silver lining in the disappointing news.',
-    ],
-    pronunciation_ipa: '/ˈsɪlvər ˈlaɪnɪŋ/',
-    source: 'podcast',
-    date_added: '2026-05-15T10:30:00Z',
-    starred: true,
-    review_count: 2,
-    last_reviewed: '2026-05-17T09:00:00Z',
-  },
-  {
-    term: 'ephemeral',
-    category: 'word',
-    english_definition: 'Lasting for a very short time; transitory.',
-    chinese_translation: '短暂的，瞬息的',
-    example_sentences: [
-      "Fame is ephemeral — today's headlines are forgotten by next week.",
-      'The ephemeral beauty of cherry blossoms makes them all the more precious.',
-    ],
-    pronunciation_ipa: '/ɪˈfem.ər.əl/',
-    source: 'novel',
-    date_added: '2026-05-16T14:00:00Z',
-    starred: false,
-    review_count: 1,
-    last_reviewed: '2026-05-17T09:00:00Z',
-  },
-  {
-    term: 'It goes without saying that...',
-    category: 'sentence_pattern',
-    english_definition: 'Used to introduce something that is obvious or universally understood.',
-    chinese_translation: '不言而喻的是……；毋庸置疑……',
-    example_sentences: [
-      'It goes without saying that hard work leads to success.',
-      'It goes without saying that you should always back up your data.',
-    ],
-    pronunciation_ipa: '/ɪt ɡoʊz wɪˈðaʊt ˈseɪɪŋ ðæt/',
-    source: 'work email',
-    date_added: '2026-05-17T09:15:00Z',
-    starred: false,
-    review_count: 0,
-  },
-  {
-    term: 'get the ball rolling',
-    category: 'collocation',
-    english_definition: 'To start an activity or process; to initiate something.',
-    chinese_translation: '开始行动；启动某事',
-    example_sentences: [
-      "Let's get the ball rolling on the new project.",
-      'She made the first call to get the ball rolling on the negotiation.',
-    ],
-    pronunciation_ipa: '/ɡɛt ðə bɔːl ˈroʊlɪŋ/',
-    source: 'Netflix show',
-    date_added: '2026-05-18T08:00:00Z',
-    starred: false,
-    review_count: 0,
-  },
-];
-
 // --- DB row → VocabEntry ---
 type DbRow = {
   id: string;
@@ -186,24 +120,8 @@ export function useVocabStore(userId: string) {
           return;
         }
         const rows = (data ?? []) as DbRow[];
-        if (rows.length > 0) {
-          dispatch({ type: 'LOAD', entries: rows.map(rowToEntry) });
-          setLoading(false);
-        } else {
-          // Seed sample data for new user
-          const samples: VocabEntry[] = SAMPLE_ENTRIES_TEMPLATE.map((t) => ({
-            ...t,
-            id: crypto.randomUUID(),
-          }));
-          const seedRows = samples.map((s) => entryToRow(s, userId));
-          supabase
-            .from('vocab_entries')
-            .insert(seedRows)
-            .then(() => {
-              dispatch({ type: 'LOAD', entries: samples });
-              setLoading(false);
-            });
-        }
+        dispatch({ type: 'LOAD', entries: rows.map(rowToEntry) });
+        setLoading(false);
       });
   }, [userId]);
 
