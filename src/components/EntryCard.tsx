@@ -22,15 +22,37 @@ export function EntryCard({ entry, isNew = false, onEdit, onDelete, onToggleStar
 
   const label = CATEGORY_LABELS[entry.category] ?? 'Word';
 
-  function speak() {
-    if (!window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
+  function fallbackSpeak() {
     const utt = new SpeechSynthesisUtterance(entry.term);
     utt.lang = 'en-US';
     utt.onstart = () => setSpeaking(true);
     utt.onend = () => setSpeaking(false);
     utt.onerror = () => setSpeaking(false);
     window.speechSynthesis.speak(utt);
+  }
+
+  async function speak() {
+    if (speaking) return;
+    setSpeaking(true);
+    try {
+      const res = await fetch(
+        `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(entry.term)}`
+      );
+      const data = await res.json();
+      const phonetics: { audio?: string }[] = data[0]?.phonetics ?? [];
+      const audioUrl = phonetics.find((p) => p.audio)?.audio;
+      if (audioUrl) {
+        const audio = new Audio(audioUrl);
+        audio.onended = () => setSpeaking(false);
+        audio.onerror = () => { setSpeaking(false); fallbackSpeak(); };
+        audio.play();
+        return;
+      }
+    } catch {
+      // fall through to Web Speech
+    }
+    setSpeaking(false);
+    fallbackSpeak();
   }
 
   function handleDelete() {
