@@ -22,7 +22,7 @@ ${termList}
 Guidelines:
 - Begin with a friendly, conversational opener and immediately start using some of the vocabulary items naturally
 - Ask questions that encourage the learner to use these words themselves
-- When a vocabulary item comes up organically, you can gently highlight it with *asterisks* to draw attention
+- When you use one of the vocabulary items, wrap it in <strong> tags. Example: <strong>silver lining</strong>. Do NOT use asterisks.
 - If the learner misuses a term, gently correct them: "Great try! Just a small note — 'X' is usually used like..."
 - Keep the conversation warm, intellectually engaging, and natural — like chatting with a knowledgeable friend
 - Don't robotically list all 10 words; weave them in gradually over the conversation
@@ -235,11 +235,12 @@ export function ReviewSession({ entries, selectForReview, markReviewed, onClose 
               className={`max-w-[80%] px-4 py-3 rounded-sm text-sm leading-relaxed whitespace-pre-wrap ${
                 msg.role === 'user'
                   ? 'bg-[#1C1917] text-white'
-                  : 'bg-white border border-stone-200 text-[#1C1917]'
+                  : 'review-message bg-white border border-stone-200 text-[#1C1917]'
               }`}
-            >
-              {msg.content}
-            </div>
+              {...(msg.role === 'assistant'
+                ? { dangerouslySetInnerHTML: { __html: msg.content } }
+                : { children: msg.content })}
+            />
           </div>
         ))}
 

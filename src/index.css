@@ -78,6 +78,14 @@
   100% { transform: translateX(200%); }
 }
 
+/* Vocabulary highlight in review chat */
+.review-message strong {
+  font-weight: 800;
+  color: #1C1917;
+  border-bottom: 2px solid #D4883A;
+  padding-bottom: 1px;
+}
+
 /* Sage color utilities (not in default Tailwind palette) */
 .bg-sage-100 { background-color: #d1e8d1; }
 .text-sage-800 { color: #2d5a2d; }
