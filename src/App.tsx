@@ -155,11 +155,19 @@ function AppShell({ session }: { session: Session }) {
           </div>
         ) : tab === 'notebook' ? (
           <VocabNotebook
+            userId={session.user.id}
             entries={store.entries}
+            clusters={store.clusters}
             onAdd={store.addEntry}
             onEdit={setEditingEntry}
             onDelete={store.deleteEntry}
             onToggleStar={store.toggleStar}
+            onStarBatch={store.setStarBatch}
+            onUnlinkCluster={store.deleteCluster}
+            onClusterUpdate={store.refreshAll}
+            addCluster={store.addCluster}
+            updateClusterMeaning={store.updateClusterMeaning}
+            updateEntryCluster={store.updateEntryCluster}
           />
         ) : (
           <ReviewSession

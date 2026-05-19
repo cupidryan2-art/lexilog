@@ -78,19 +78,20 @@
   100% { transform: translateX(200%); }
 }
 
-/* Masonry-style card grid */
+/* Card grid — 2-column, each card only as tall as its content */
 .vocab-grid {
-  columns: 2;
-  column-gap: 16px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  align-items: start;
 }
-.vocab-card {
-  break-inside: avoid;
-  margin-bottom: 16px;
-  display: inline-block;
-  width: 100%;
+.vocab-card { /* solo entry — occupies one column */ }
+.vocab-cluster-card {
+  grid-column: 1 / -1; /* cluster spans full width */
 }
 @media (max-width: 640px) {
-  .vocab-grid { columns: 1; }
+  .vocab-grid { grid-template-columns: 1fr; }
+  .vocab-cluster-card { grid-column: 1; }
 }
 
 /* Vocabulary highlight in review chat */

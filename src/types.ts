@@ -13,6 +13,17 @@ export interface VocabEntry {
   starred: boolean;
   review_count: number;
   last_reviewed?: string;
+  cluster_id?: string;
+}
+
+export interface WordCluster {
+  id: string;
+  user_id: string;
+  cluster_name: string;
+  root: string;
+  shared_meaning: string | null;
+  key_difference: string | null;
+  created_at: string;
 }
 
 export type SortOption = 'date_desc' | 'date_asc' | 'starred' | 'alpha';
