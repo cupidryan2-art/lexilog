@@ -163,6 +163,7 @@ function AppShell({ session }: { session: Session }) {
           />
         ) : (
           <ReviewSession
+            userId={session.user.id}
             entries={store.entries}
             selectForReview={store.selectForReview}
             markReviewed={store.markReviewed}

@@ -22,3 +22,15 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
 }
+
+export interface GrammarError {
+  id: string;
+  user_id: string;
+  original_text: string;
+  corrected_text: string;
+  reason: string;
+  source_session_id: string;
+  vocab_context: string[];
+  reviewed: boolean;
+  created_at: string;
+}
