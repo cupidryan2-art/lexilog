@@ -54,7 +54,9 @@ function entryToRow(entry: VocabEntry, userId: string) {
     review_count: entry.review_count,
     last_reviewed: entry.last_reviewed ?? null,
     created_at: entry.date_added,
-    cluster_id: entry.cluster_id ?? null,
+    // Only include cluster_id when set — omitting it avoids errors if the column
+    // hasn't been migrated yet (null would cause a "column does not exist" error).
+    ...(entry.cluster_id != null ? { cluster_id: entry.cluster_id } : {}),
   };
 }
 
@@ -147,7 +149,7 @@ export function useVocabStore(userId: string) {
   }, [userId]);
 
   const addEntry = useCallback(
-    (data: Omit<VocabEntry, 'id' | 'date_added' | 'starred' | 'review_count'>): string => {
+    async (data: Omit<VocabEntry, 'id' | 'date_added' | 'starred' | 'review_count'>): Promise<string> => {
       const id = crypto.randomUUID();
       const entry: VocabEntry = {
         ...data,
@@ -156,24 +158,39 @@ export function useVocabStore(userId: string) {
         starred: false,
         review_count: 0,
       };
+      const { data: inserted, error } = await supabase
+        .from('vocab_entries')
+        .insert(entryToRow(entry, userId))
+        .select()
+        .single();
+      console.log('[LexiLog] addEntry result:', inserted, error);
+      if (error) throw new Error(error.message);
       dispatch({ type: 'ADD_ENTRY', entry });
-      supabase.from('vocab_entries').insert(entryToRow(entry, userId));
       return id;
     },
     [userId]
   );
 
   const updateEntry = useCallback(
-    (entry: VocabEntry) => {
+    async (entry: VocabEntry) => {
+      const { data: updated, error } = await supabase
+        .from('vocab_entries')
+        .update(entryToRow(entry, userId))
+        .eq('id', entry.id)
+        .select()
+        .single();
+      console.log('[LexiLog] updateEntry result:', updated, error);
+      if (error) throw new Error(error.message);
       dispatch({ type: 'UPDATE_ENTRY', entry });
-      supabase.from('vocab_entries').update(entryToRow(entry, userId)).eq('id', entry.id);
     },
     [userId]
   );
 
-  const deleteEntry = useCallback((id: string) => {
+  const deleteEntry = useCallback(async (id: string) => {
+    const { error } = await supabase.from('vocab_entries').delete().eq('id', id);
+    console.log('[LexiLog] deleteEntry result:', error);
+    if (error) throw new Error(error.message);
     dispatch({ type: 'DELETE_ENTRY', id });
-    supabase.from('vocab_entries').delete().eq('id', id);
   }, []);
 
   const toggleStar = useCallback(

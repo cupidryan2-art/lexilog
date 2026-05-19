@@ -16,7 +16,7 @@ interface Props {
   userId: string;
   entries: VocabEntry[];
   clusters: WordCluster[];
-  onAdd: (data: Omit<VocabEntry, 'id' | 'date_added' | 'starred' | 'review_count'>) => string;
+  onAdd: (data: Omit<VocabEntry, 'id' | 'date_added' | 'starred' | 'review_count'>) => Promise<string>;
   onEdit: (entry: VocabEntry) => void;
   onDelete: (id: string) => void;
   onToggleStar: (id: string) => void;
@@ -106,8 +106,8 @@ export function VocabNotebook({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entries.length > 0 ? 'loaded' : 'empty']);
 
-  function handleAdd(data: Omit<VocabEntry, 'id' | 'date_added' | 'starred' | 'review_count'>) {
-    const id = onAdd(data);
+  async function handleAdd(data: Omit<VocabEntry, 'id' | 'date_added' | 'starred' | 'review_count'>) {
+    const id = await onAdd(data);
     setNewEntryId(id);
     setTimeout(() => setNewEntryId(null), 800);
 

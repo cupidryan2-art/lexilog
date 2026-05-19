@@ -22,8 +22,8 @@ function AppShell({ session }: { session: Session }) {
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [pendingKey, setPendingKey] = useState('');
 
-  function handleEditSave(entry: VocabEntry) {
-    store.updateEntry(entry);
+  async function handleEditSave(entry: VocabEntry) {
+    await store.updateEntry(entry);
     setEditingEntry(null);
   }
 

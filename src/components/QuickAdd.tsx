@@ -29,7 +29,7 @@ Infer the category automatically:
 type GeneratedFields = Omit<VocabEntry, 'id' | 'date_added' | 'starred' | 'review_count'>;
 
 interface Props {
-  onAdded: (data: GeneratedFields) => void;
+  onAdded: (data: GeneratedFields) => Promise<void> | void;
 }
 
 export function QuickAdd({ onAdded }: Props) {
@@ -74,7 +74,7 @@ export function QuickAdd({ onAdded }: Props) {
       const jsonText = text.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
       const parsed = JSON.parse(jsonText);
 
-      onAdded({
+      await onAdded({
         term: parsed.term || inputTerm,
         category: parsed.category || 'word',
         english_definition: parsed.english_definition || '',
