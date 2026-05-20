@@ -87,19 +87,25 @@ export async function detectAndCluster(
     return null;
   }
 
-  const system = `You are a lexical analysis tool. Given a new vocabulary term and a list of existing terms, identify which existing terms are linguistically related to the new one.
+  const system = `You are a lexical grouping tool. Your job is to find words that come from the same root — different grammatical forms of the same base word.
 
-"Related" means they share the same root/stem — e.g.:
-- advance / advanced / advancement / advancing
-- decide / decision / decisive / indecisive
-- beauty / beautiful / beautifully / beautify
+Examples of what SHOULD be clustered:
+- advance, advanced, advancement, advancing, unadvanced
+- decide, decision, decisive, decisively, indecisive
+- beauty, beautiful, beautifully, beautify, beautification
+- depend, dependent, dependence, independence, independently
+- humiliate, humiliating, humiliated, humiliation
 
-Do NOT cluster words that are merely thematically related (e.g. "rain" and "umbrella" are NOT a cluster).
+The rule is simple: if you remove prefixes and suffixes, do the words share the same core root? If yes → same cluster.
 
-Return ONLY a JSON object, no extra text:
+Common suffixes to look past: -ed, -ing, -ion, -tion, -ment, -ness, -ly, -ful, -less, -ity, -ive, -al, -ance, -ence, -er, -est
+Common prefixes to look past: un-, in-, im-, dis-, re-, pre-, over-
+
+Return ONLY a JSON object, no explanation, no markdown:
 { "related_ids": ["uuid1"], "root": "advance", "cluster_name": "advance" }
 
-If no related entries found, return: { "related_ids": [], "root": null, "cluster_name": null }`;
+If no related entries found, return: { "related_ids": [], "root": null, "cluster_name": null }
+Never return null at the top level. Never add commentary.`;
 
   const user = `New term: "${newEntry.term}"
 Existing terms (id + term): ${JSON.stringify(existingEntries.map((e) => ({ id: e.id, term: e.term })))}`;
@@ -185,18 +191,27 @@ export async function bulkScan(
   console.log('[Cluster] Starting bulk scan for', unclusteredEntries.length, 'entries:', unclusteredEntries.map((e) => e.term));
   if (unclusteredEntries.length === 0) return 0;
 
-  const system = `You are a lexical analysis tool. Group the following vocabulary terms into word family clusters based on shared linguistic root/stem.
+  const system = `You are a lexical grouping tool. Your job is to find words that come from the same root — different grammatical forms of the same base word.
 
-Rules:
-- Only group words that share the same root (e.g. advance/advanced/advancement)
-- Do NOT group by theme or topic
-- A cluster must have at least 2 members
-- Omit words that don't belong to any cluster
+Examples of what SHOULD be clustered:
+- advance, advanced, advancement, advancing, unadvanced
+- decide, decision, decisive, decisively, indecisive
+- beauty, beautiful, beautifully, beautify, beautification
+- depend, dependent, dependence, independence, independently
+- humiliate, humiliating, humiliated, humiliation
 
-Return ONLY a JSON array, no extra text:
+The rule is simple: if you remove prefixes and suffixes, do the words share the same core root? If yes → same cluster.
+
+Common suffixes to look past: -ed, -ing, -ion, -tion, -ment, -ness, -ly, -ful, -less, -ity, -ive, -al, -ance, -ence, -er, -est
+Common prefixes to look past: un-, in-, im-, dis-, re-, pre-, over-
+
+A cluster must have at least 2 members. Omit words that share no root with any other word.
+
+Return ONLY a valid JSON array, no explanation, no markdown:
 [{ "root": "advance", "cluster_name": "advance", "member_ids": ["uuid1", "uuid2"] }]
 
-If no clusters found, return: []`;
+If truly no words share a root, return an empty array: []
+Never return null. Never add commentary.`;
 
   const batches: VocabEntry[][] = [];
   for (let i = 0; i < unclusteredEntries.length; i += BATCH_SIZE) {
