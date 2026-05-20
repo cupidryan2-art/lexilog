@@ -5,6 +5,7 @@ import { ClusterCard } from './ClusterCard';
 import { QuickAdd } from './QuickAdd';
 import { Search, SlidersHorizontal, RefreshCw } from 'lucide-react';
 import { detectAndCluster, bulkScan } from '../lib/clusterDetect';
+import { supabase } from '../lib/supabase';
 
 const SCAN_KEY = 'cluster_scan_v1_done';
 
@@ -142,41 +143,114 @@ export function VocabNotebook({
     }
   }
 
-  function handleRescan() {
-    localStorage.removeItem(SCAN_KEY);
-    window.location.reload();
+  async function handleForceRescan() {
+    if (scanRunning.current) return;
+    scanRunning.current = true;
+    setScanDone(false);
+    setScanMsg('🔄 Clearing existing clusters…');
+    console.log('[Cluster] Force rescan started — entries:', entries.length);
+
+    try {
+      // 1. Remove cluster_id from all vocab_entries (RLS restricts to current user)
+      const { error: clearEntriesError } = await supabase
+        .from('vocab_entries')
+        .update({ cluster_id: null })
+        .not('id', 'is', null);
+      console.log('[Cluster] Clear entry cluster_ids result:', clearEntriesError);
+      if (clearEntriesError) {
+        console.warn('[Cluster] Could not clear cluster_ids (column may not exist yet):', clearEntriesError.message);
+      }
+
+      // 2. Delete all word_clusters for this user
+      const { error: deleteClustersError } = await supabase
+        .from('word_clusters')
+        .delete()
+        .not('id', 'is', null);
+      console.log('[Cluster] Delete all clusters result:', deleteClustersError);
+      if (deleteClustersError) {
+        console.warn('[Cluster] Could not delete clusters (table may not exist yet):', deleteClustersError.message);
+      }
+
+      // 3. Refresh store — entries come back with cluster_id = null, clusters = []
+      await onClusterUpdate();
+      localStorage.removeItem(SCAN_KEY);
+
+      // 4. Treat all entries as unclustered (snapshot before async re-render)
+      const allEntries = entries.map((e) => ({ ...e, cluster_id: undefined }));
+      if (allEntries.length < 2) {
+        setScanMsg('✓ Nothing to cluster (need at least 2 entries)');
+        setScanDone(true);
+        setTimeout(() => setScanMsg(null), 3000);
+        scanRunning.current = false;
+        return;
+      }
+
+      // 5. Run bulk scan with empty clusters list so it doesn't think clusters exist
+      setScanMsg(`🔗 Scanning ${allEntries.length} entries for word families…`);
+      const freshStoreOps = { ...storeOps, clusters: [] };
+      const count = await bulkScan(allEntries, freshStoreOps, (msg) => setScanMsg(msg));
+
+      // 6. Pull in newly created clusters + entries
+      if (count > 0) await onClusterUpdate();
+      localStorage.setItem(SCAN_KEY, 'true');
+
+      const msg = count > 0
+        ? `✓ Found ${count} word ${count === 1 ? 'family' : 'families'}`
+        : '✓ Scan complete — no word families detected';
+      setScanMsg(msg);
+      setScanDone(true);
+      console.log('[Cluster] Force rescan complete. Clusters created:', count);
+      setTimeout(() => setScanMsg(null), 4000);
+    } catch (e) {
+      console.error('[Cluster] Force rescan error:', e);
+      setScanMsg(`❌ Rescan failed: ${e instanceof Error ? e.message : 'Unknown error — check console'}`);
+      setScanDone(false);
+      setTimeout(() => setScanMsg(null), 6000);
+    } finally {
+      scanRunning.current = false;
+    }
   }
 
-  // Build display items
+  // Build display items: group entries by cluster, dissolve single-member clusters to solo
   const displayItems = useMemo((): DisplayItem[] => {
     const clusterMap = new Map<string, VocabEntry[]>();
-    const soloEntries: VocabEntry[] = [];
+    const seenClusterIds = new Set<string>();
+    const items: DisplayItem[] = [];
 
+    // Group entries
     for (const entry of entries) {
-      const clusterExists = entry.cluster_id && clusters.find((c) => c.id === entry.cluster_id);
-      if (clusterExists) {
-        const arr = clusterMap.get(entry.cluster_id!) ?? [];
+      const cluster = entry.cluster_id ? clusters.find((c) => c.id === entry.cluster_id) : null;
+      if (cluster) {
+        const arr = clusterMap.get(cluster.id) ?? [];
         arr.push(entry);
-        clusterMap.set(entry.cluster_id!, arr);
+        clusterMap.set(cluster.id, arr);
       } else {
-        soloEntries.push(entry);
+        // No valid cluster — treat as solo immediately
+        items.push({ type: 'solo', entry });
       }
     }
 
-    const items: DisplayItem[] = [
-      ...soloEntries.map((entry): DisplayItem => ({ type: 'solo', entry })),
-    ];
-
-    for (const cluster of clusters) {
-      const clusterEntries = clusterMap.get(cluster.id);
-      if (!clusterEntries || clusterEntries.length < 2) {
-        // Dissolve single-member or empty clusters to solo
-        if (clusterEntries) {
-          clusterEntries.forEach((e) => items.push({ type: 'solo', entry: e }));
-        }
-        continue;
+    // Now emit clusters (or dissolve them to solo if < 2 members)
+    // We emit them in the order their FIRST member appeared in entries[] so sort works correctly
+    const clusterOrder: string[] = [];
+    for (const entry of entries) {
+      if (entry.cluster_id && !seenClusterIds.has(entry.cluster_id)) {
+        seenClusterIds.add(entry.cluster_id);
+        clusterOrder.push(entry.cluster_id);
       }
-      items.push({ type: 'cluster', cluster, entries: clusterEntries });
+    }
+
+    for (const clusterId of clusterOrder) {
+      const clusterEntries = clusterMap.get(clusterId);
+      const cluster = clusters.find((c) => c.id === clusterId);
+      if (!cluster || !clusterEntries) continue;
+
+      if (clusterEntries.length < 2) {
+        // Dissolve — show as individual solo cards
+        clusterEntries.forEach((e) => items.push({ type: 'solo', entry: e }));
+      } else {
+        items.push({ type: 'cluster', cluster, entries: clusterEntries });
+      }
     }
 
     return items;
@@ -334,22 +408,38 @@ export function VocabNotebook({
             </div>
             <div className="flex-shrink-0 flex items-end">
               <button
-                onClick={handleRescan}
-                className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-[#4A7A4A] border border-[#9DC49D] rounded-sm hover:bg-[#EFF6EF] transition-colors"
-                title="Re-scan all entries for word families"
+                onClick={handleForceRescan}
+                disabled={scanRunning.current}
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-[#4A7A4A] border border-[#9DC49D] rounded-sm hover:bg-[#EFF6EF] transition-colors disabled:opacity-50"
+                title="Clear all clusters and re-detect word families from scratch"
               >
-                <RefreshCw size={11} /> Re-scan word families
+                <RefreshCw size={11} className={scanRunning.current ? 'animate-spin' : ''} />
+                Re-cluster (full reset)
               </button>
             </div>
           </div>
         )}
       </div>
 
-      {/* Entry count */}
-      <p className="mb-3 uppercase tracking-[0.1em] text-[#B0A090]" style={{ fontSize: '12px' }}>
-        {entries.length} {entries.length === 1 ? 'entry' : 'entries'}
-        {query && ` matching "${query}"`}
-      </p>
+      {/* Entry count + force rescan button */}
+      <div className="mb-3 flex items-center justify-between">
+        <p className="uppercase tracking-[0.1em] text-[#B0A090]" style={{ fontSize: '12px' }}>
+          {entries.length} {entries.length === 1 ? 'entry' : 'entries'}
+          {query && ` matching "${query}"`}
+          {clusters.length > 0 && ` · ${clusters.length} word ${clusters.length === 1 ? 'family' : 'families'}`}
+        </p>
+        {entries.length >= 2 && (
+          <button
+            onClick={handleForceRescan}
+            disabled={scanRunning.current}
+            className="flex items-center gap-1 text-[11px] text-[#4A7A4A] border border-[#9DC49D] rounded px-2 py-0.5 hover:bg-[#EFF6EF] transition-colors disabled:opacity-50"
+            title="Clear all clusters and re-detect word families from scratch"
+          >
+            <RefreshCw size={10} className={scanRunning.current ? 'animate-spin' : ''} />
+            Re-cluster
+          </button>
+        )}
+      </div>
 
       {/* Grid */}
       {filtered.length === 0 ? (

@@ -16,11 +16,13 @@ interface ClusterStoreOps {
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 async function callDeepSeek(system: string, user: string): Promise<string> {
+  const apiKey = getApiKey();
+  console.log('[Cluster] Calling DeepSeek API, key present:', !!apiKey);
   const res = await fetch(DEEPSEEK_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${getApiKey()}`,
+      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       model: 'deepseek-chat',
@@ -31,7 +33,11 @@ async function callDeepSeek(system: string, user: string): Promise<string> {
       ],
     }),
   });
-  if (!res.ok) throw new Error(`API ${res.status}`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    console.error('[Cluster] DeepSeek API error', res.status, body);
+    throw new Error(`API ${res.status}: ${body}`);
+  }
   const data = (await res.json()) as { choices: { message: { content: string } }[] };
   return data.choices[0]?.message?.content ?? '';
 }
@@ -73,7 +79,13 @@ export async function detectAndCluster(
   existingEntries: VocabEntry[], // must NOT include newEntry
   store: ClusterStoreOps
 ): Promise<string | null> {
-  if (existingEntries.length === 0) return null;
+  console.log('[Cluster] Starting detection for new term:', newEntry.term);
+  console.log('[Cluster] Existing entries to scan:', existingEntries.length);
+
+  if (existingEntries.length === 0) {
+    console.log('[Cluster] No existing entries — skipping');
+    return null;
+  }
 
   const system = `You are a lexical analysis tool. Given a new vocabulary term and a list of existing terms, identify which existing terms are linguistically related to the new one.
 
@@ -94,17 +106,26 @@ Existing terms (id + term): ${JSON.stringify(existingEntries.map((e) => ({ id: e
 
   try {
     const raw = await callDeepSeek(system, user);
+    console.log('[Cluster] AI response:', raw);
+
     const result = parseJSON<{
       related_ids: string[];
       root: string | null;
       cluster_name: string | null;
     }>(raw);
+    console.log('[Cluster] Parsed result:', result);
 
-    if (!result || result.related_ids.length === 0 || !result.cluster_name) return null;
+    if (!result || result.related_ids.length === 0 || !result.cluster_name) {
+      console.log('[Cluster] No related entries found for:', newEntry.term);
+      return null;
+    }
+
+    console.log('[Cluster] Related IDs found:', result.related_ids);
 
     // Find entries that matched
     const relatedEntries = existingEntries.filter((e) => result.related_ids.includes(e.id));
     const allEntryIds = [...relatedEntries.map((e) => e.id), newEntry.id];
+    console.log('[Cluster] Matched entries:', relatedEntries.map((e) => e.term));
 
     // Check if any related entry already belongs to an existing cluster
     const existingCluster = store.clusters.find((c) =>
@@ -112,12 +133,14 @@ Existing terms (id + term): ${JSON.stringify(existingEntries.map((e) => ({ id: e
     );
 
     if (existingCluster) {
-      // Join the existing cluster
+      console.log('[Cluster] Joining existing cluster:', existingCluster.cluster_name, existingCluster.id);
       await store.updateEntryCluster([newEntry.id], existingCluster.id);
+      console.log('[Cluster] Joined existing cluster successfully');
       return existingCluster.cluster_name;
     }
 
     // Create a new cluster
+    console.log('[Cluster] Creating new cluster:', result.cluster_name);
     const clusterId = await store.addCluster({
       user_id: store.userId,
       cluster_name: result.cluster_name,
@@ -125,7 +148,10 @@ Existing terms (id + term): ${JSON.stringify(existingEntries.map((e) => ({ id: e
       shared_meaning: null,
       key_difference: null,
     });
+    console.log('[Cluster] Cluster created with ID:', clusterId);
+
     await store.updateEntryCluster(allEntryIds, clusterId);
+    console.log('[Cluster] Entry cluster_ids updated for entries:', allEntryIds);
 
     // Generate meaning in background (non-blocking)
     const meaningEntries = [newEntry, ...relatedEntries].map((e) => ({
@@ -137,7 +163,8 @@ Existing terms (id + term): ${JSON.stringify(existingEntries.map((e) => ({ id: e
     });
 
     return result.cluster_name;
-  } catch {
+  } catch (e) {
+    console.error('[Cluster] Detection error for term', newEntry.term, ':', e);
     return null;
   }
 }
@@ -155,6 +182,7 @@ export async function bulkScan(
   store: ClusterStoreOps,
   onProgress: (msg: string) => void
 ): Promise<number> {
+  console.log('[Cluster] Starting bulk scan for', unclusteredEntries.length, 'entries:', unclusteredEntries.map((e) => e.term));
   if (unclusteredEntries.length === 0) return 0;
 
   const system = `You are a lexical analysis tool. Group the following vocabulary terms into word family clusters based on shared linguistic root/stem.
@@ -184,16 +212,28 @@ If no clusters found, return: []`;
 
     const batch = batches[b];
     const user = JSON.stringify(batch.map((e) => ({ id: e.id, term: e.term })));
+    console.log('[Cluster] Sending batch', b + 1, 'to AI:', batch.map((e) => e.term));
 
     try {
       const raw = await callDeepSeek(system, user);
+      console.log('[Cluster] Batch', b + 1, 'AI response:', raw);
+
       const groups = parseJSON<{ root: string; cluster_name: string; member_ids: string[] }[]>(raw);
-      if (!Array.isArray(groups)) continue;
+      console.log('[Cluster] Batch', b + 1, 'groups detected:', groups);
+
+      if (!Array.isArray(groups)) {
+        console.warn('[Cluster] Batch', b + 1, '— AI response was not an array, skipping');
+        continue;
+      }
 
       for (const group of groups) {
-        if (!group.member_ids || group.member_ids.length < 2) continue;
+        if (!group.member_ids || group.member_ids.length < 2) {
+          console.log('[Cluster] Skipping group (< 2 members):', group);
+          continue;
+        }
 
         try {
+          console.log('[Cluster] Creating cluster:', group.cluster_name, 'for IDs:', group.member_ids);
           const clusterId = await store.addCluster({
             user_id: store.userId,
             cluster_name: group.cluster_name ?? group.root,
@@ -201,7 +241,11 @@ If no clusters found, return: []`;
             shared_meaning: null,
             key_difference: null,
           });
+          console.log('[Cluster] Cluster created:', group.cluster_name, '→ ID:', clusterId);
+
           await store.updateEntryCluster(group.member_ids, clusterId);
+          console.log('[Cluster] Entry cluster_ids updated for cluster:', group.cluster_name);
+
           totalClusters++;
 
           // Generate meaning async
@@ -211,14 +255,15 @@ If no clusters found, return: []`;
           generateMeaning(memberEntries).then((meaning) => {
             if (meaning) store.updateClusterMeaning(clusterId, meaning.shared, meaning.difference);
           });
-        } catch {
-          // skip this group, continue
+        } catch (e) {
+          console.error('[Cluster] Failed to create cluster', group.cluster_name, ':', e);
         }
       }
-    } catch {
-      // skip this batch, continue
+    } catch (e) {
+      console.error('[Cluster] Batch', b + 1, 'failed:', e);
     }
   }
 
+  console.log('[Cluster] Bulk scan complete. Total clusters created:', totalClusters);
   return totalClusters;
 }
