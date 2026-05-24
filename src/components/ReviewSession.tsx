@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import type { VocabEntry, ChatMessage } from '../types';
-import { Send, Square, RotateCcw, Loader2 } from 'lucide-react';
+import { Send, Square, RotateCcw, Loader2, ChevronDown } from 'lucide-react';
 import { getApiKey, DEEPSEEK_URL } from '../lib/apiKey';
 import { supabase } from '../lib/supabase';
 import { ErrorsTab } from './ErrorsTab';
@@ -61,13 +61,11 @@ function parseCorrections(text: string): ParsedCorrection[] {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    // Match: 🔧 Quick fix: "original" → "corrected"
     const fixMatch = line.match(/🔧\s*Quick fix:\s*"([^"]+)"\s*→\s*"([^"]+)"/);
     if (fixMatch) {
       const original = fixMatch[1];
       const corrected = fixMatch[2];
       let reason = '';
-      // Look for Reason: on nearby lines
       for (let j = i + 1; j <= Math.min(i + 3, lines.length - 1); j++) {
         const reasonMatch = lines[j].match(/^Reason:\s*(.+)/);
         if (reasonMatch) {
@@ -101,12 +99,29 @@ export function ReviewSession({ userId, entries, selectForReview, markReviewed, 
   const [error, setError] = useState('');
   const [sessionErrors, setSessionErrors] = useState<ParsedCorrection[]>([]);
 
+  // Collapsible vocab chips
+  const [vocabOpen, setVocabOpen] = useState(false);
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
+  // Auto-scroll whenever messages or loading state changes
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
+
+  // Reset textarea height when input is cleared
+  useEffect(() => {
+    if (!input && inputRef.current) {
+      inputRef.current.style.height = '44px';
+    }
+  }, [input]);
+
+  function handleTextareaInput(e: React.FormEvent<HTMLTextAreaElement>) {
+    const el = e.currentTarget;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+  }
 
   async function startSession() {
     if (entries.length === 0) {
@@ -119,6 +134,7 @@ export function ReviewSession({ userId, entries, selectForReview, markReviewed, 
     setMessages([]);
     setError('');
     setSessionErrors([]);
+    setVocabOpen(false);
     setPhase('active');
     await sendToAPI(buildSystemPrompt(sel), [], undefined, sel);
   }
@@ -179,7 +195,6 @@ export function ReviewSession({ userId, entries, selectForReview, markReviewed, 
             reviewed: false,
           }))
         );
-        // Update badge count
         setUnreviewedCount((n) => n + corrections.length);
       }
 
@@ -213,10 +228,7 @@ export function ReviewSession({ userId, entries, selectForReview, markReviewed, 
   }
 
   function endSession() {
-    markReviewed(
-      selected.map((e) => e.id),
-      currentRound
-    );
+    markReviewed(selected.map((e) => e.id), currentRound);
     setPhase('ended');
   }
 
@@ -229,7 +241,7 @@ export function ReviewSession({ userId, entries, selectForReview, markReviewed, 
 
   // ── Sub-tab header (always visible) ──────────────────────────────────────
   const TabBar = (
-    <div className="flex items-center gap-0 border-b border-stone-200 mb-5">
+    <div className="flex items-center gap-0 border-b border-stone-200 mb-4">
       <button
         onClick={() => setSubTab('practice')}
         className={`px-4 py-2 text-sm border-b-2 transition-colors -mb-px ${
@@ -326,9 +338,7 @@ export function ReviewSession({ userId, entries, selectForReview, markReviewed, 
   // ── Session summary modal (phase === 'ended') ─────────────────────────────
   const SummaryModal = phase === 'ended' && (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
       <div className="absolute inset-0 bg-black/30" />
-      {/* Card */}
       <div
         className="relative bg-[#F8F5EE] rounded-2xl w-full max-w-md max-h-[85vh] overflow-y-auto"
         style={{ boxShadow: '0 8px 40px rgba(0,0,0,0.18)' }}
@@ -343,7 +353,6 @@ export function ReviewSession({ userId, entries, selectForReview, markReviewed, 
             {sessionErrors.length !== 1 ? 's' : ''} caught
           </p>
 
-          {/* Vocab list */}
           <div className="space-y-1.5 mb-5">
             {selected.map((e) => {
               const used = usedTerms.some((u) => u.id === e.id);
@@ -365,7 +374,6 @@ export function ReviewSession({ userId, entries, selectForReview, markReviewed, 
             })}
           </div>
 
-          {/* Errors caught */}
           {sessionErrors.length > 0 && (
             <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-5 text-sm text-amber-800">
               🔧 <span className="font-semibold">{sessionErrors.length} grammar correction
@@ -417,90 +425,134 @@ export function ReviewSession({ userId, entries, selectForReview, markReviewed, 
       {TabBar}
       {SummaryModal}
 
-      <div className="flex flex-col h-[calc(100vh-240px)] max-w-2xl mx-auto">
-        {/* Vocab chips + end button */}
-        <div className="flex items-start gap-2 mb-3 pb-3 border-b border-stone-200">
-          <div className="flex flex-wrap gap-1.5 flex-1">
-            {selected.map((e) => {
-              const used = usedTerms.some((u) => u.id === e.id);
-              return (
-                <span
-                  key={e.id}
-                  className={`text-xs px-2 py-0.5 border rounded-sm transition-colors ${
-                    used
-                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                      : 'bg-amber-50 text-amber-800 border-amber-200'
-                  }`}
-                >
-                  {e.starred ? '★ ' : ''}{e.term}
-                </span>
-              );
-            })}
-          </div>
-          <button
-            onClick={endSession}
-            className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1 text-xs text-stone-500 border border-stone-200 rounded-sm hover:border-stone-400 hover:text-stone-700 transition-colors"
-          >
-            <Square size={11} /> End
-          </button>
-        </div>
-
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto space-y-4 pr-1">
-          {messages.map((msg, i) => (
-            <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div
-                className={`max-w-[80%] px-4 py-3 rounded-sm text-sm leading-relaxed whitespace-pre-wrap ${
-                  msg.role === 'user'
-                    ? 'bg-[#1C1917] text-white'
-                    : 'review-message bg-white border border-stone-200 text-[#1C1917]'
-                }`}
-                {...(msg.role === 'assistant'
-                  ? { dangerouslySetInnerHTML: { __html: msg.content } }
-                  : { children: msg.content })}
+      {/* Full-height chat container */}
+      <div
+        className="max-w-2xl mx-auto flex flex-col"
+        style={{ height: 'calc(100vh - 220px)' }}
+      >
+        {/* Collapsible vocab chips */}
+        <div className="flex-shrink-0 border-b border-[#EDE8E0]">
+          <div className="flex items-center justify-between py-2">
+            <button
+              onClick={() => setVocabOpen((v) => !v)}
+              className="flex items-center gap-2 text-xs text-stone-500 hover:text-stone-700 transition-colors"
+            >
+              <span>
+                📚 <span className="font-medium">{selected.length} words</span>
+                {usedTerms.length > 0 && (
+                  <span className="text-emerald-600 ml-1">· {usedTerms.length} used ✓</span>
+                )}
+              </span>
+              <ChevronDown
+                size={13}
+                className={`transition-transform duration-200 ${vocabOpen ? 'rotate-180' : ''}`}
               />
-            </div>
-          ))}
+            </button>
+            <button
+              onClick={endSession}
+              className="flex items-center gap-1.5 px-3 py-1 text-xs text-stone-500 border border-stone-200 rounded-sm hover:border-stone-400 hover:text-stone-700 transition-colors"
+            >
+              <Square size={11} /> End session
+            </button>
+          </div>
 
-          {loading && (
-            <div className="flex justify-start">
-              <div className="px-4 py-3 bg-white border border-stone-200 rounded-sm">
-                <Loader2 size={16} className="animate-spin text-stone-400" />
-              </div>
+          {vocabOpen && (
+            <div className="pb-3 flex flex-wrap gap-1.5">
+              {selected.map((e) => {
+                const used = usedTerms.some((u) => u.id === e.id);
+                return (
+                  <span
+                    key={e.id}
+                    className={`text-xs px-2 py-0.5 border rounded-sm transition-colors ${
+                      used
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : 'bg-amber-50 text-amber-800 border-amber-200'
+                    }`}
+                  >
+                    {e.starred ? '★ ' : ''}{e.term}
+                  </span>
+                );
+              })}
             </div>
           )}
-
-          {error && (
-            <div className="text-red-600 text-sm bg-red-50 border border-red-200 px-4 py-2 rounded-sm flex items-center gap-2">
-              <span className="flex-1">{error}</span>
-              <button
-                onClick={() => sendToAPI(buildSystemPrompt(selected), messages)}
-                className="text-xs underline flex-shrink-0"
-              >
-                Retry
-              </button>
-            </div>
-          )}
-
-          <div ref={bottomRef} />
         </div>
 
-        {/* Input */}
-        <div className="mt-4 flex gap-2 items-end border-t border-stone-200 pt-4">
+        {/* Messages — fills all remaining space */}
+        <div className="flex-1 overflow-y-auto px-1 py-5" style={{ scrollBehavior: 'smooth' }}>
+          <div className="flex flex-col gap-4">
+            {messages.map((msg, i) => (
+              <div
+                key={i}
+                className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+              >
+                <div
+                  className={`text-sm whitespace-pre-wrap ${
+                    msg.role === 'user'
+                      ? 'bg-[#1C1917] text-[#F7F3EE] rounded-2xl rounded-br-[4px]'
+                      : 'review-message bg-white border border-[#EDE8E0] text-[#1C1917] rounded-2xl rounded-bl-[4px]'
+                  }`}
+                  style={{
+                    maxWidth: '75%',
+                    padding: '14px 18px',
+                    lineHeight: 1.75,
+                    marginBottom: 0,
+                  }}
+                  {...(msg.role === 'assistant'
+                    ? { dangerouslySetInnerHTML: { __html: msg.content } }
+                    : { children: msg.content })}
+                />
+              </div>
+            ))}
+
+            {loading && (
+              <div className="flex justify-start">
+                <div
+                  className="bg-white border border-[#EDE8E0] rounded-2xl rounded-bl-[4px]"
+                  style={{ padding: '14px 18px' }}
+                >
+                  <Loader2 size={16} className="animate-spin text-stone-400" />
+                </div>
+              </div>
+            )}
+
+            {error && (
+              <div className="text-red-600 text-sm bg-red-50 border border-red-200 px-4 py-3 rounded-xl flex items-center gap-2">
+                <span className="flex-1">{error}</span>
+                <button
+                  onClick={() => sendToAPI(buildSystemPrompt(selected), messages)}
+                  className="text-xs underline flex-shrink-0 hover:text-red-800"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+
+            <div ref={bottomRef} />
+          </div>
+        </div>
+
+        {/* Input area — never gets squished */}
+        <div
+          className="flex-shrink-0 border-t border-[#EDE8E0] flex gap-3 items-end"
+          style={{ padding: '16px 0' }}
+        >
           <textarea
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            onInput={handleTextareaInput}
             onKeyDown={handleKeyDown}
             placeholder="Reply here… (Enter to send, Shift+Enter for newline)"
-            rows={2}
-            className="flex-1 px-3 py-2 border border-stone-300 rounded-sm bg-white text-sm text-[#1C1917] resize-none focus:outline-none focus:border-amber-500 transition-colors"
+            className="flex-1 px-4 py-2.5 border border-stone-300 rounded-xl bg-white text-sm text-[#1C1917] focus:outline-none focus:border-amber-500 transition-colors overflow-y-auto resize-none"
+            style={{ minHeight: '44px', maxHeight: '120px', lineHeight: 1.5 }}
+            rows={1}
           />
           <button
             onClick={handleSend}
             disabled={!input.trim() || loading}
-            className="p-2.5 bg-[#D97706] text-white rounded-sm hover:bg-amber-700 transition-colors disabled:opacity-40"
-            title="Send"
+            className="flex-shrink-0 p-2.5 bg-[#D97706] text-white rounded-xl hover:bg-amber-700 transition-colors disabled:opacity-40"
+            style={{ marginBottom: '1px' }}
+            title="Send (Enter)"
           >
             <Send size={16} />
           </button>
