@@ -34,6 +34,17 @@ export interface ChatMessage {
   content: string;
 }
 
+export interface ReviewSessionRecord {
+  id: string;
+  user_id: string;
+  vocab_words: string[];
+  messages: ChatMessage[];
+  error_count: number;
+  started_at: string;
+  ended_at: string | null;
+  title: string | null;
+}
+
 export interface GrammarError {
   id: string;
   user_id: string;
