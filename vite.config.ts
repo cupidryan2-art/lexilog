@@ -10,4 +10,8 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    // compromise NLP library is intentionally bundled (~140KB gzip)
+    chunkSizeWarningLimit: 900,
+  },
 });
