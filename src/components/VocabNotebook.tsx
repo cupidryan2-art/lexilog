@@ -47,7 +47,7 @@ export function VocabNotebook({
 }: Props) {
   const [query, setQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState<FilterCategory>('all');
-  const [sort, setSort] = useState<SortOption>('starred');
+  const [sort, setSort] = useState<SortOption>('date_desc');
   const [showFilters, setShowFilters] = useState(false);
   const [newEntryId, setNewEntryId] = useState<string | null>(null);
 
@@ -276,32 +276,29 @@ export function VocabNotebook({
       return item.entries.some(matchesEntry);
     });
 
-    visible.sort((a, b) => {
-      // Extract sort-key fields for each item
-      const aStarred = a.type === 'solo' ? a.entry.starred : a.entries.some((e) => e.starred);
-      const bStarred = b.type === 'solo' ? b.entry.starred : b.entries.some((e) => e.starred);
-      const aDate =
-        a.type === 'solo'
-          ? new Date(a.entry.date_added).getTime()
-          : Math.max(...a.entries.map((e) => new Date(e.date_added).getTime()));
-      const bDate =
-        b.type === 'solo'
-          ? new Date(b.entry.date_added).getTime()
-          : Math.max(...b.entries.map((e) => new Date(e.date_added).getTime()));
-      const aTerm = a.type === 'solo' ? a.entry.term : a.cluster.cluster_name;
-      const bTerm = b.type === 'solo' ? b.entry.term : b.cluster.cluster_name;
+    // Starred items always pin to the top; within each group apply the chosen sort.
+    const isStarred = (item: DisplayItem) =>
+      item.type === 'solo' ? item.entry.starred : item.entries.some((e) => e.starred);
 
-      if (sort === 'starred') {
-        if (aStarred !== bStarred) return aStarred ? -1 : 1;
-        return bDate - aDate;
-      }
-      if (sort === 'date_desc') return bDate - aDate;
-      if (sort === 'date_asc') return aDate - bDate;
-      if (sort === 'alpha') return aTerm.localeCompare(bTerm);
+    const getDate = (item: DisplayItem) =>
+      item.type === 'solo'
+        ? new Date(item.entry.date_added).getTime()
+        : Math.max(...item.entries.map((e) => new Date(e.date_added).getTime()));
+
+    const getTerm = (item: DisplayItem) =>
+      item.type === 'solo' ? item.entry.term : item.cluster.cluster_name;
+
+    const sortFn = (a: DisplayItem, b: DisplayItem): number => {
+      if (sort === 'date_desc') return getDate(b) - getDate(a);
+      if (sort === 'date_asc')  return getDate(a) - getDate(b);
+      if (sort === 'alpha')     return getTerm(a).localeCompare(getTerm(b));
       return 0;
-    });
+    };
 
-    return visible;
+    const starred   = visible.filter((item) =>  isStarred(item)).sort(sortFn);
+    const unstarred = visible.filter((item) => !isStarred(item)).sort(sortFn);
+
+    return [...starred, ...unstarred];
   }, [displayItems, query, filterCategory, sort]);
 
   const categoryOptions: { value: FilterCategory; label: string }[] = [
@@ -312,7 +309,6 @@ export function VocabNotebook({
   ];
 
   const sortOptions: { value: SortOption; label: string }[] = [
-    { value: 'starred', label: 'Starred first' },
     { value: 'date_desc', label: 'Newest' },
     { value: 'date_asc', label: 'Oldest' },
     { value: 'alpha', label: 'A–Z' },

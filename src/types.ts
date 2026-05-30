@@ -26,7 +26,7 @@ export interface WordCluster {
   created_at: string;
 }
 
-export type SortOption = 'date_desc' | 'date_asc' | 'starred' | 'alpha';
+export type SortOption = 'date_desc' | 'date_asc' | 'alpha';
 export type FilterCategory = 'all' | Category;
 
 export interface ChatMessage {
